@@ -4,7 +4,7 @@ const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteD
 
 // --- CONFIGURATION ---
 const BOT_TOKEN = "8538682604:AAH-tT7u21BBSdwuDyySY0dWMn0Pq0N-QgU";
-const ADMIN_ID = "8207051152";
+const ADMIN_ID = "8207051152"; 
 
 const bot = new Telegraf(BOT_TOKEN);
 
@@ -24,8 +24,8 @@ app.listen(PORT, () => {
 });
 
 // --- VARIABLES GLOBALES ---
-const userStates = {};
-const tempFormation = {}; // store current admin adding formation (per-admin would be better if multi-admin)
+const userStates = {}; 
+const tempFormation = {}; 
 
 // --- MENU PRINCIPAL ---
 const mainMenu = Markup.inlineKeyboard([
@@ -46,7 +46,7 @@ async function checkUserStatus(ctx, next) {
     const userSnap = await getDoc(userRef);
 
     if (!userSnap.exists()) {
-        return ctx.reply("👋 Miarahaba! Tsindrio ny bokotra eto ambany mba handefasana ny laharanao (Contact).",
+        return ctx.reply("👋 Miarahaba! Tsindrio ny bokotra eto ambany mba handefasana ny laharanao (Contact).", 
             Markup.keyboard([[Markup.button.contactRequest('📱 Hizara ny laharan-telefaonina')]]).resize()
         );
     }
@@ -81,13 +81,13 @@ Safidio avy eo:
 
 // --- START COMMAND ---
 bot.start(async (ctx) => {
-    if (ctx.from.id.toString() === ADMIN_ID) return sendAdminPanel(ctx);
+    if(ctx.from.id.toString() === ADMIN_ID) return sendAdminPanel(ctx);
     const userRef = doc(db, "users", ctx.from.id.toString());
     const userSnap = await getDoc(userRef);
     if (userSnap.exists() && userSnap.data().status === 'approved') {
         return ctx.reply("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
     } else {
-        return checkUserStatus(ctx, () => {});
+        return checkUserStatus(ctx, () => {}); 
     }
 });
 
@@ -119,20 +119,13 @@ bot.on('text', async (ctx) => {
     const state = userStates[userId];
     const text = ctx.message.text;
 
-    // Admin input for adding formation
     if (userId === ADMIN_ID && state && state.startsWith('admin_add_')) return handleAdminInput(ctx, state, text);
 
     if (state === 'waiting_payment_sender') {
-        // send to admin for verification with approve/reject
-        await ctx.telegram.sendMessage(ADMIN_ID,
-            `💰 *Vérification Paiement*\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Sender: ${text}`,
-            {
-                parse_mode: 'Markdown',
-                reply_markup: Markup.inlineKeyboard([
-                    [Markup.button.callback('✅ Approuver', `approve_${userId}`), Markup.button.callback('❌ Refuser', `reject_${userId}`)]
-                ]).reply_markup
-            }
-        ).catch(e => console.error('Send to admin error:', e));
+        await ctx.telegram.sendMessage(ADMIN_ID, 
+            `💰 **Vérification Paiement**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Sender: ${text}`,
+            Markup.inlineKeyboard([[Markup.button.callback('✅ Approuver', `approve_${userId}`)], [Markup.button.callback('❌ Refuser', `reject_${userId}`)]])
+        );
         await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
         delete userStates[userId];
         return ctx.reply("✅ Nalefa any amin'ny Admin. Miandrasa kely.");
@@ -140,102 +133,58 @@ bot.on('text', async (ctx) => {
 
     if (state === 'waiting_old_phone') {
         userStates[userId] = 'waiting_old_screenshot';
-        userStates[userId + '_phone'] = text;
+        userStates[userId + '_phone'] = text; 
         return ctx.reply("Alefaso sary (Capture d'écran) ny compte taloha:");
     }
-
+    
     if (state === 'waiting_old_note') {
-        const oldPhone = userStates[userId + '_phone'];
-        const fileId = userStates[userId + '_img'];
-        await ctx.telegram.sendPhoto(ADMIN_ID, fileId, {
-            caption: `🔄 **Ancien Compte**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Ancien Num: ${oldPhone}\n🗒️ Note: ${text}`,
-            parse_mode: 'Markdown',
-            reply_markup: Markup.inlineKeyboard([
-                [Markup.button.callback('✅ Approuver', `approve_${userId}`), Markup.button.callback('❌ Refuser', `reject_${userId}`)]
-            ]).reply_markup
-        });
-        await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
-        delete userStates[userId];
-        return ctx.reply("✅ Nalefa any amin'ny Admin.");
+         const oldPhone = userStates[userId + '_phone'];
+         const fileId = userStates[userId + '_img'];
+         await ctx.telegram.sendPhoto(ADMIN_ID, fileId, {
+             caption: `🔄 **Ancien Compte**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Ancien Num: ${oldPhone}\n🗒️ Note: ${text}`,
+             ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approuver', `approve_${userId}`)], [Markup.button.callback('❌ Refuser', `reject_${userId}`)]])
+         });
+         await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
+         delete userStates[userId];
+         return ctx.reply("✅ Nalefa any amin'ny Admin.");
     }
 });
 
-// --- IMAGE / VIDEO / DOCUMENT HANDLER FOR OLD ACCOUNT ---
+// --- IMAGE HANDLER ---
 bot.on('photo', async (ctx) => {
     const userId = ctx.from.id.toString();
     if (userStates[userId] === 'waiting_old_screenshot') {
         const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
         userStates[userId] = 'waiting_old_note';
-        userStates[userId + '_img'] = fileId;
+        userStates[userId + '_img'] = fileId; 
         return ctx.reply("Soraty ny Note kely mba hanazavana fa efa mpianatra ianao:");
     }
 });
 
-// --- ADMIN ACTIONS: approve / reject payment ---
+// --- ADMIN ACTIONS ---
 bot.action(/approve_(.+)/, async (ctx) => {
-    if (ctx.from.id.toString() !== ADMIN_ID) {
-        await ctx.answerCbQuery('Tsy manana fahazoan-dàlana ianao.');
-        return;
-    }
+    if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
+    await updateDoc(doc(db, "users", targetId), { status: 'approved' });
+    await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao. Afaka miditra ianao izao.", mainMenu);
     try {
-        await updateDoc(doc(db, "users", targetId), { status: 'approved' });
+        await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || ''}\n\n✅ TRAITÉ: APPROUVÉ`);
     } catch (e) {
-        console.error('Firestore update user status error:', e);
+        // ignore if cannot edit caption
     }
-
-    // Notify target user (with main menu). Catch errors if user hasn't started bot.
-    try {
-        await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao. Afaka miditra ianao izao.", {
-            parse_mode: 'Markdown',
-            reply_markup: mainMenu.reply_markup
-        });
-    } catch (e) {
-        console.warn(`Unable to notify user ${targetId}:`, e.message);
-        // inform admin that user couldn't be notified
-        await ctx.reply(`⚠️ Tsy afaka nandefa confirmation tamin'ny user (ID: ${targetId}). Mety tsy nanomboka ny bot ny user.`);
-    }
-
-    // Edit admin's payment message to mark processed if possible
-    try {
-        if (ctx.callbackQuery && ctx.callbackQuery.message) {
-            await ctx.editMessageText((ctx.callbackQuery.message.text || '') + `\n\n✅ TRAITÉ: APPROUVÉ`);
-        }
-    } catch (e) {
-        // ignore; maybe message isn't editable
-    }
-
-    await ctx.answerCbQuery('User approuvé ✅');
+    await ctx.answerCbQuery();
 });
-
 bot.action(/reject_(.+)/, async (ctx) => {
-    if (ctx.from.id.toString() !== ADMIN_ID) {
-        await ctx.answerCbQuery('Tsy manana fahazoan-dàlana ianao.');
-        return;
-    }
+    if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
+    await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
+    await ctx.telegram.sendMessage(targetId, "❌ Nanda ny fandoavanao ny Admin.");
     try {
-        await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
+        await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || ''}\n\n❌ TRAITÉ: REFUSÉ`);
     } catch (e) {
-        console.error('Firestore update user status error:', e);
+        // ignore if cannot edit caption
     }
-
-    try {
-        await ctx.telegram.sendMessage(targetId, "❌ Nanda ny fandoavanao ny Admin.");
-    } catch (e) {
-        console.warn(`Unable to notify user ${targetId}:`, e.message);
-        await ctx.reply(`⚠️ Tsy afaka nandefa notification ny user (ID: ${targetId}).`);
-    }
-
-    try {
-        if (ctx.callbackQuery && ctx.callbackQuery.message) {
-            await ctx.editMessageText((ctx.callbackQuery.message.text || '') + `\n\n❌ TRAITÉ: REFUSÉ`);
-        }
-    } catch (e) {
-        // ignore
-    }
-
-    await ctx.answerCbQuery('User refusé ❌');
+    await ctx.answerCbQuery();
 });
 
 // --- ADMIN PANEL ---
@@ -246,24 +195,16 @@ function sendAdminPanel(ctx) {
     ]));
 }
 bot.action('admin_home', async (ctx) => {
+    // Admin home should acknowledge callback and show the main menu (or admin view)
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     await ctx.answerCbQuery();
+    // Show admin the regular main menu so they can preview sections as admin
     await ctx.reply("👋 Tongasoa Admin! Ity ny Accueil / Menu Principal :", mainMenu);
 });
 
-// --- ADMIN: add formation flow ---
 bot.action('admin_add_start', (ctx) => {
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     userStates[ADMIN_ID] = 'admin_add_title';
-    // reset tempFormation for new add
-    tempFormation.title = null;
-    tempFormation.type = null;
-    tempFormation.category = null;
-    tempFormation.downloadLink = null;
-    tempFormation.isTelegramFile = false;
-    tempFormation.fileType = null;
-    tempFormation.signupLink = null;
-    tempFormation.description = null;
     ctx.reply("1️⃣ Ampidiro ny **TITRE** ny formation:");
 });
 
@@ -271,10 +212,9 @@ async function handleAdminInput(ctx, state, text) {
     if (state === 'admin_add_title') {
         tempFormation.title = text;
         userStates[ADMIN_ID] = 'admin_add_type';
-        ctx.reply("2️⃣ Karazana rakitra (Video, PDF, Audio, Youtube, Lien)?");
+        ctx.reply("2️⃣ Karazana rakitra (Video, PDF, Audio, Youtube)?");
     } else if (state === 'admin_add_type') {
         tempFormation.type = text;
-        userStates[ADMIN_ID] = 'admin_add_category';
         ctx.reply("3️⃣ Safidio ny Section (Category):", Markup.inlineKeyboard([
             [Markup.button.callback('Microtache', 'setcat_microtache')],
             [Markup.button.callback('Poppo Live', 'setcat_poppo')],
@@ -282,94 +222,35 @@ async function handleAdminInput(ctx, state, text) {
             [Markup.button.callback('Criptomonie', 'setcat_crypto')],
             [Markup.button.callback('Investissement', 'setcat_invest')]
         ]));
+        delete userStates[ADMIN_ID]; 
     } else if (state === 'admin_add_link_dl') {
-        // admin provided a link (http) as downloadLink
-        if (text && (text.startsWith('http://') || text.startsWith('https://') || text.startsWith('www.'))) {
-            tempFormation.downloadLink = text;
-            tempFormation.isTelegramFile = false;
-            userStates[ADMIN_ID] = 'admin_add_link_sign';
-            ctx.reply("5️⃣ Lien inscription (Bouton S'inscrire) - (Soraty 'non' raha tsy misy):");
-        } else {
-            // treat as plain text link or id; still accept
-            tempFormation.downloadLink = text;
-            tempFormation.isTelegramFile = false;
-            userStates[ADMIN_ID] = 'admin_add_link_sign';
-            ctx.reply("5️⃣ Lien inscription (Bouton S'inscrire) - (Soraty 'non' raha tsy misy):");
-        }
+        tempFormation.downloadLink = text;
+        userStates[ADMIN_ID] = 'admin_add_link_sign';
+        ctx.reply("5️⃣ Lien inscription (Bouton S'inscrire) - (Soraty 'non' raha tsy misy):");
     } else if (state === 'admin_add_link_sign') {
-        tempFormation.signupLink = (text === 'non') ? null : text;
+        tempFormation.signupLink = text === 'non' ? null : text;
         userStates[ADMIN_ID] = 'admin_add_desc';
         ctx.reply("6️⃣ Description (Liste):");
     } else if (state === 'admin_add_desc') {
         tempFormation.description = text;
-        // save to Firestore
-        try {
-            await addDoc(collection(db, "formations"), {
-                title: tempFormation.title,
-                type: tempFormation.type,
-                category: tempFormation.category,
-                downloadLink: tempFormation.downloadLink || null,
-                isTelegramFile: !!tempFormation.isTelegramFile,
-                fileType: tempFormation.fileType || null,
-                signupLink: tempFormation.signupLink || null,
-                description: tempFormation.description || null,
-                createdAt: new Date().toISOString()
-            });
-            ctx.reply(`✅ **Formation Voatahiry!**\n\nTitre: ${tempFormation.title}`,
-                Markup.inlineKeyboard([[Markup.button.callback('➕ Ajouter une autre', 'admin_add_start')]])
-            );
-        } catch (e) {
-            console.error('Error saving formation:', e);
-            ctx.reply('❌ Tsy nahomby ny fanoratana formation. Jereo ny logs.');
-        }
-        // clear state
+        await addDoc(collection(db, "formations"), tempFormation);
+        ctx.reply(`✅ **Formation Voatahiry!**\n\nTitre: ${tempFormation.title}`,
+            Markup.inlineKeyboard([[Markup.button.callback('➕ Ajouter une autre', 'admin_add_start')]])
+        );
         delete userStates[ADMIN_ID];
-        // clear tempFormation (optional)
-        Object.keys(tempFormation).forEach(k => delete tempFormation[k]);
-    } else if (state === 'admin_add_category') {
-        // This state handled by callback 'setcat_x' - so here no-op
     }
 }
 
-// category callbacks - when admin selects category, ask for download link OR upload file
 const cats = ['microtache', 'poppo', 'trading', 'crypto', 'invest'];
 cats.forEach(c => {
     bot.action(`setcat_${c}`, (ctx) => {
-        if (ctx.from.id.toString() !== ADMIN_ID) return;
         tempFormation.category = c;
         userStates[ADMIN_ID] = 'admin_add_link_dl';
-        ctx.reply(`Section voafidy: ${c.toUpperCase()}\n\n4️⃣ Ampidiro ny Lien téléchargement (na ID video Telegram) NA alefaso mivantana eto ny fichier (video/document).`);
+        ctx.reply(`Section voafidy: ${c.toUpperCase()}\n\n4️⃣ Ampidiro ny Lien téléchargement (na ID video Telegram):`);
     });
 });
 
-// Handle video/document upload from admin when in admin_add_link_dl state
-bot.on('video', async (ctx) => {
-    const userId = ctx.from.id.toString();
-    if (userId !== ADMIN_ID) return;
-    if (userStates[userId] === 'admin_add_link_dl') {
-        const fileId = ctx.message.video.file_id;
-        tempFormation.downloadLink = fileId;
-        tempFormation.isTelegramFile = true;
-        tempFormation.fileType = 'video';
-        userStates[ADMIN_ID] = 'admin_add_link_sign';
-        return ctx.reply("✅ Video voaray. 5️⃣ Lien inscription (Soraty 'non' raha tsy misy):");
-    }
-});
-bot.on('document', async (ctx) => {
-    const userId = ctx.from.id.toString();
-    if (userId !== ADMIN_ID) return;
-    if (userStates[userId] === 'admin_add_link_dl') {
-        const fileId = ctx.message.document.file_id;
-        tempFormation.downloadLink = fileId;
-        tempFormation.isTelegramFile = true;
-        tempFormation.fileType = 'document';
-        userStates[ADMIN_ID] = 'admin_add_link_sign';
-        return ctx.reply("✅ Document voaray. 5️⃣ Lien inscription (Soraty 'non' raha tsy misy):");
-    }
-});
-
 // --- USER VIEW CONTENT ---
-// When showing formations: support both link downloads and Telegram-file uploads, and add delete button for admin
 cats.forEach(cat => {
     bot.action(`cat_${cat}`, async (ctx) => {
         const userRef = doc(db, "users", ctx.from.id.toString());
@@ -380,7 +261,7 @@ cats.forEach(cat => {
         }
         await ctx.answerCbQuery();
         await ctx.reply(`📂 **Section: ${cat.toUpperCase()}**\n\nMitady...`);
-        const q = collection(db, "formations");
+        const q = collection(db, "formations"); 
         const querySnapshot = await getDocs(q);
         let found = false;
         querySnapshot.forEach((formationDoc) => {
@@ -389,24 +270,12 @@ cats.forEach(cat => {
                 found = true;
                 const buttonsRow = [];
                 if (data.signupLink) buttonsRow.push(Markup.button.url('✍️ S\'inscrire', data.signupLink));
-                // If downloadLink is a normal URL, show button; if it's a Telegram file id, we will send file directly
-                if (data.downloadLink && !data.isTelegramFile) buttonsRow.push(Markup.button.url('📥 Voir / Télécharger', data.downloadLink));
+                if (data.downloadLink) buttonsRow.push(Markup.button.url('📥 Voir / Télécharger', data.downloadLink));
+                // Add delete button visible only to admin
                 if (ctx.from.id.toString() === ADMIN_ID) {
                     buttonsRow.push(Markup.button.callback('🗑️ Supprimer', `delete_${formationDoc.id}`));
                 }
-                const keyboard = Markup.inlineKeyboard([buttonsRow]);
-
-                const caption = `🎓 *${data.title}*\n\n📝 ${data.description || ''}\n\n📂 Type: ${data.type || ''}`;
-
-                // If telegram-file saved, send as video/document with caption and keyboard
-                if (data.isTelegramFile && data.fileType === 'video') {
-                    ctx.replyWithVideo(data.downloadLink, { caption, parse_mode: 'Markdown', reply_markup: keyboard.reply_markup });
-                } else if (data.isTelegramFile && data.fileType === 'document') {
-                    ctx.replyWithDocument(data.downloadLink, { caption, parse_mode: 'Markdown', reply_markup: keyboard.reply_markup });
-                } else {
-                    // plain message with markdown + buttons
-                    ctx.replyWithMarkdown(caption, keyboard);
-                }
+                ctx.replyWithMarkdown(`🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, Markup.inlineKeyboard([buttonsRow]));
             }
         });
         if (!found) ctx.reply("⚠️ Mbola tsy misy formation.");
@@ -422,20 +291,12 @@ bot.action(/delete_(.+)/, async (ctx) => {
     const formationId = ctx.match[1];
     try {
         await deleteDoc(doc(db, "formations", formationId));
-        // Try to edit the message where delete was clicked to reflect removal (if possible)
-        try {
-            if (ctx.callbackQuery && ctx.callbackQuery.message) {
-                await ctx.editMessageText('🗑️ Ity formation ity dia voafafa.');
-            }
-        } catch (e) {
-            // ignore edit errors
-        }
         await ctx.answerCbQuery('Formation supprimée ✅');
+        // optional: inform admin in chat
         await ctx.reply(`✅ Formation (${formationId}) voafafa.`);
     } catch (err) {
         console.error('Delete error:', err);
         await ctx.answerCbQuery('Nisy olana tamin\'ny famafana.');
-        await ctx.reply('❌ Nisy olana tamin\'ny famafana ao amin\'ny Firestore. Jereo ny logs.');
     }
 });
 
