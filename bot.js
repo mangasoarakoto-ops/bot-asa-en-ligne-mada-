@@ -1,7 +1,7 @@
 const { Telegraf, Markup, session } = require('telegraf');
 const express = require('express');
 
-// --- ZAVA-DEHIBE: Nampiana 'query' sy 'where' teto amin'ny import ---
+// --- ZAVA-DEHIBE: Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo query sy where ireo ---
 const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where } = require('./firebase');
 
 // --- CONFIGURATION ---
@@ -42,12 +42,17 @@ const backButton = Markup.button.callback('🏠 Retour Menu', 'return_home');
 
 // --- ACTION RETOUR ---
 bot.action('return_home', async (ctx) => {
-    await ctx.answerCbQuery();
-    // Raha admin dia alefa any amin'ny admin panel na main menu
-    if (ctx.from.id.toString() === ADMIN_ID) {
-         return ctx.editMessageText("👋 Tongasoa eto amin'ny Menu Principal:", mainMenu);
+    try {
+        await ctx.answerCbQuery();
+        // Raha admin dia alefa any amin'ny admin panel na main menu
+        if (ctx.from.id.toString() === ADMIN_ID) {
+             return ctx.editMessageText("👋 Tongasoa eto amin'ny Menu Principal:", mainMenu);
+        }
+        await ctx.editMessageText("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
+    } catch (e) {
+        // Raha tsisy message ho editena dia mandefa vaovao
+        await ctx.reply("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
     }
-    await ctx.editMessageText("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
 });
 
 // --- FONCTIONS CHECK USER ---
@@ -404,10 +409,16 @@ bot.action(/delete_(.+)/, async (ctx) => {
     }
 });
 
-// --- USER VIEW CONTENT (OPTIMISÉ 100%) ---
+// --- USER VIEW CONTENT (Vao nahitsy sy nasiana Sécurité) ---
 cats.forEach(cat => {
     bot.action(`cat_${cat}`, async (ctx) => {
         try {
+            // 0. Debug Check (Hamarino ao amin'ny terminal)
+            if (!query || !where) {
+                console.error("⛔ ERREUR IMPORT: 'query' na 'where' dia undefined. Hamarino ny firebase.js anao.");
+                return ctx.reply("⚠️ Misy olana teknika ao amin'ny Server (Import Error).");
+            }
+
             // 1. Verification User
             const userRef = doc(db, "users", ctx.from.id.toString());
             const userSnap = await getDoc(userRef);
@@ -420,7 +431,7 @@ cats.forEach(cat => {
             await ctx.answerCbQuery();
             await ctx.reply(`📂 **Section: ${cat.toUpperCase()}**\n\nmitady... ⏳`);
             
-            // 2. QUERY OPTIMISÉ (Maka izay ilaina ihany)
+            // 2. QUERY OPTIMISÉ
             const q = query(
                 collection(db, "formations"), 
                 where("category", "==", cat)
@@ -432,58 +443,70 @@ cats.forEach(cat => {
                 return ctx.reply("⚠️ Mbola tsy misy formation ato.", Markup.inlineKeyboard([[backButton]]));
             }
 
-            // 3. BOUCLE MIRINDRA (Tsirairay)
+            // 3. BOUCLE ROBUSTE (Tsy mampijanona ny bot raha misy video 1 tsy mety)
             for (const formationDoc of querySnapshot.docs) {
                 const data = formationDoc.data();
                 
-                // Manomana ny bokotra
-                const buttonsRow = [];
-                if (data.signupLink) buttonsRow.push(Markup.button.url('✍️ S\'inscrire', data.signupLink));
-                
-                // Arakaraka ny karazana fichier (Method)
-                if (data.method === 'file' && data.fileId) {
-                    // Raha Fichier mivantana (Telegram File ID)
-                    let caption = `🎓 **${data.title}**\n📝 ${data.description}`;
+                try {
+                    // Manomana ny bokotra
+                    const buttonsRow = [];
+                    // Validation ny URL mba tsy hi-crash
+                    if (data.signupLink && data.signupLink.startsWith('http')) {
+                        buttonsRow.push(Markup.button.url('✍️ S\'inscrire', data.signupLink));
+                    }
                     
-                    try {
-                        if (data.mime === 'video') {
-                            await ctx.replyWithVideo(data.fileId, { caption: caption, parse_mode: 'Markdown' });
-                        } else if (data.mime === 'audio') {
-                            await ctx.replyWithAudio(data.fileId, { caption: caption, parse_mode: 'Markdown' });
-                        } else if (data.mime === 'photo') {
-                            await ctx.replyWithPhoto(data.fileId, { caption: caption, parse_mode: 'Markdown' });
-                        } else {
-                            await ctx.replyWithDocument(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                    // Arakaraka ny karazana fichier (Method)
+                    if (data.method === 'file' && data.fileId) {
+                        // Raha Fichier mivantana
+                        let caption = `🎓 **${data.title}**\n📝 ${data.description}`;
+                        
+                        // Error handling specifique ho an'ny file send
+                        try {
+                            if (data.mime === 'video') {
+                                await ctx.replyWithVideo(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                            } else if (data.mime === 'audio') {
+                                await ctx.replyWithAudio(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                            } else if (data.mime === 'photo') {
+                                await ctx.replyWithPhoto(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                            } else {
+                                await ctx.replyWithDocument(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                            }
+                        } catch (sendErr) {
+                            console.error(`⚠️ Tsy lasa ny fichier ${data.title}:`, sendErr.message);
+                            // Tohizana ny loop, tsy alefa ity video ity fa ny manaraka alefa
+                            continue; 
                         }
-                    } catch (err) {
-                        console.error("Olana fandefasana fichier:", err);
-                        await ctx.reply(`⚠️ Nisy olana tamin'ny fandefasana ny fichier: ${data.title}`);
-                    }
 
-                    if(buttonsRow.length > 0) {
-                        await ctx.reply("👇", Markup.inlineKeyboard([buttonsRow]));
-                    }
+                        if(buttonsRow.length > 0) {
+                            await ctx.reply("👇", Markup.inlineKeyboard([buttonsRow]));
+                        }
 
-                } else {
-                    // Raha LIEN tsotra
-                    if (data.downloadLink) buttonsRow.push(Markup.button.url('📥 Voir / Télécharger', data.downloadLink));
-                    
-                    await ctx.replyWithMarkdown(
-                        `🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, 
-                        Markup.inlineKeyboard([buttonsRow])
-                    );
+                    } else {
+                        // Raha LIEN tsotra
+                        if (data.downloadLink && data.downloadLink.startsWith('http')) {
+                            buttonsRow.push(Markup.button.url('📥 Voir / Télécharger', data.downloadLink));
+                        }
+                        
+                        await ctx.replyWithMarkdown(
+                            `🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, 
+                            Markup.inlineKeyboard([buttonsRow])
+                        );
+                    }
+                } catch (innerError) {
+                    console.error("Erreur kely tamin'ny element iray:", innerError);
                 }
                 
-                // 4. FIATOANA KELY (0.3s) mba tsy ho blocké
-                await new Promise(resolve => setTimeout(resolve, 300));
+                // 4. FIATOANA KELY (0.5s)
+                await new Promise(resolve => setTimeout(resolve, 500));
             }
             
-            // 5. Bokotra Retour any amin'ny farany
+            // 5. Bokotra Retour
             await ctx.reply("----------------", Markup.inlineKeyboard([[backButton]]));
 
         } catch (error) {
-            console.error("Erreur Query:", error);
-            ctx.reply("❌ Nisy olana teknika kely tamin'ny fakana ny videos.");
+            console.error("❌ ERREUR CRITIQUE QUERY:", error);
+            // Eto no ahitanao ny olana raha mbola mitranga (Check console)
+            ctx.reply(`❌ Nisy olana teknika: ${error.message}`);
         }
     });
 });
