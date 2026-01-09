@@ -1,8 +1,21 @@
 // firebase.js
 const { initializeApp } = require("firebase/app");
-const { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs } = require("firebase/firestore");
+// --- ZAVA-DEHIBE: Nampiana 'deleteDoc', 'query', ary 'where' teto ---
+const { 
+  getFirestore, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  collection, 
+  addDoc, 
+  getDocs, 
+  deleteDoc, // Nampiana
+  query,     // Nampiana (Ity ilay nitady hiteraka olana)
+  where      // Nampiana
+} = require("firebase/firestore");
 
-// Configuration nampidirina mivantana (Test Only)
+// Configuration (Efa nampidirinao)
 const firebaseConfig = {
   apiKey: "AIzaSyDPrTWmxovZdbbi0BmXr6Tn6AyrlaO0cbM",
   authDomain: "bot-asa-en-ligne-mada.firebaseapp.com",
@@ -18,4 +31,17 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-module.exports = { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs };
+// --- EXPORT (Avoaka daholo izay ilaina rehetra) ---
+module.exports = { 
+  db, 
+  doc, 
+  setDoc, 
+  getDoc, 
+  updateDoc, 
+  collection, 
+  addDoc, 
+  getDocs, 
+  deleteDoc, // Avoaka eto koa
+  query,     // Avoaka eto
+  where      // Avoaka eto
+};
