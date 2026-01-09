@@ -1,9 +1,10 @@
 const { Telegraf, Markup, session } = require('telegraf');
 const express = require('express');
-// Tsy novaina ny import Firebase
-const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc } = require('./firebase');
 
-// --- CONFIGURATION (TSY KITIHINA) ---
+// --- ZAVA-DEHIBE: Nampiana 'query' sy 'where' teto amin'ny import ---
+const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where } = require('./firebase');
+
+// --- CONFIGURATION ---
 const BOT_TOKEN = "8538682604:AAH-tT7u21BBSdwuDyySY0dWMn0Pq0N-QgU";
 const ADMIN_ID = "8207051152"; 
 
@@ -44,7 +45,6 @@ bot.action('return_home', async (ctx) => {
     await ctx.answerCbQuery();
     // Raha admin dia alefa any amin'ny admin panel na main menu
     if (ctx.from.id.toString() === ADMIN_ID) {
-         // Safidy malalaka, fa alefantsika any amin'ny Main Menu
          return ctx.editMessageText("👋 Tongasoa eto amin'ny Menu Principal:", mainMenu);
     }
     await ctx.editMessageText("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
@@ -192,7 +192,7 @@ bot.action(/approve_(.+)/, async (ctx) => {
     const targetId = ctx.match[1];
     await updateDoc(doc(db, "users", targetId), { status: 'approved' });
     
-    // Notification ho an'ny Admin
+    // Notification (Popup)
     await ctx.answerCbQuery("✅ Compte Nekena!"); 
     
     // Fanovana ny message Admin
@@ -209,7 +209,7 @@ bot.action(/reject_(.+)/, async (ctx) => {
     const targetId = ctx.match[1];
     await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
     
-    // Notification ho an'ny Admin
+    // Notification (Popup)
     await ctx.answerCbQuery("❌ Compte Nolavina!");
 
     // Fanovana ny message Admin
@@ -404,59 +404,86 @@ bot.action(/delete_(.+)/, async (ctx) => {
     }
 });
 
-// --- USER VIEW CONTENT (UPDATED WITH FILES & RETURN) ---
+// --- USER VIEW CONTENT (OPTIMISÉ 100%) ---
 cats.forEach(cat => {
     bot.action(`cat_${cat}`, async (ctx) => {
-        const userRef = doc(db, "users", ctx.from.id.toString());
-        const userSnap = await getDoc(userRef);
-        // Admin access or Approved User access
-        if (ctx.from.id.toString() !== ADMIN_ID && (!userSnap.exists() || userSnap.data().status !== 'approved')) {
+        try {
+            // 1. Verification User
+            const userRef = doc(db, "users", ctx.from.id.toString());
+            const userSnap = await getDoc(userRef);
+            
+            if (ctx.from.id.toString() !== ADMIN_ID && (!userSnap.exists() || userSnap.data().status !== 'approved')) {
+                await ctx.answerCbQuery("⛔ Tsy mahazo miditra eto ianao.");
+                return;
+            }
+
             await ctx.answerCbQuery();
-            return ctx.reply("⛔ Tsy mahazo miditra eto ianao.");
-        }
-        await ctx.answerCbQuery();
-        await ctx.reply(`📂 **Section: ${cat.toUpperCase()}**\n\nMitady...`);
-        
-        const q = collection(db, "formations");
-        const querySnapshot = await getDocs(q);
-        let found = false;
-        
-        for (const formationDoc of querySnapshot.docs) {
-            const data = formationDoc.data();
-            if (data.category === cat) {
-                found = true;
-                const buttonsRow = [];
+            await ctx.reply(`📂 **Section: ${cat.toUpperCase()}**\n\nmitady... ⏳`);
+            
+            // 2. QUERY OPTIMISÉ (Maka izay ilaina ihany)
+            const q = query(
+                collection(db, "formations"), 
+                where("category", "==", cat)
+            );
+            
+            const querySnapshot = await getDocs(q);
+            
+            if (querySnapshot.empty) {
+                return ctx.reply("⚠️ Mbola tsy misy formation ato.", Markup.inlineKeyboard([[backButton]]));
+            }
+
+            // 3. BOUCLE MIRINDRA (Tsirairay)
+            for (const formationDoc of querySnapshot.docs) {
+                const data = formationDoc.data();
                 
-                // Signup Link
+                // Manomana ny bokotra
+                const buttonsRow = [];
                 if (data.signupLink) buttonsRow.push(Markup.button.url('✍️ S\'inscrire', data.signupLink));
                 
-                // Content Delivery (Link vs File)
+                // Arakaraka ny karazana fichier (Method)
                 if (data.method === 'file' && data.fileId) {
-                    // It is a file hosted on Telegram
-                    await ctx.replyWithMarkdown(`🎓 **${data.title}**\n\n📝 ${data.description}`);
+                    // Raha Fichier mivantana (Telegram File ID)
+                    let caption = `🎓 **${data.title}**\n📝 ${data.description}`;
                     
-                    // Send the specific file type
-                    if (data.mime === 'video') await ctx.replyWithVideo(data.fileId);
-                    else if (data.mime === 'audio') await ctx.replyWithAudio(data.fileId);
-                    else if (data.mime === 'photo') await ctx.replyWithPhoto(data.fileId);
-                    else await ctx.replyWithDocument(data.fileId);
+                    try {
+                        if (data.mime === 'video') {
+                            await ctx.replyWithVideo(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                        } else if (data.mime === 'audio') {
+                            await ctx.replyWithAudio(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                        } else if (data.mime === 'photo') {
+                            await ctx.replyWithPhoto(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                        } else {
+                            await ctx.replyWithDocument(data.fileId, { caption: caption, parse_mode: 'Markdown' });
+                        }
+                    } catch (err) {
+                        console.error("Olana fandefasana fichier:", err);
+                        await ctx.reply(`⚠️ Nisy olana tamin'ny fandefasana ny fichier: ${data.title}`);
+                    }
 
-                    // Add signup button if exists separately because we can't attach inline kbd to media easily in loop without issues sometimes
-                    if(buttonsRow.length > 0) await ctx.reply("Hetsika:", Markup.inlineKeyboard([buttonsRow]));
+                    if(buttonsRow.length > 0) {
+                        await ctx.reply("👇", Markup.inlineKeyboard([buttonsRow]));
+                    }
 
                 } else {
-                    // Legacy Link method
+                    // Raha LIEN tsotra
                     if (data.downloadLink) buttonsRow.push(Markup.button.url('📥 Voir / Télécharger', data.downloadLink));
-                    await ctx.replyWithMarkdown(`🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, Markup.inlineKeyboard([buttonsRow]));
+                    
+                    await ctx.replyWithMarkdown(
+                        `🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, 
+                        Markup.inlineKeyboard([buttonsRow])
+                    );
                 }
+                
+                // 4. FIATOANA KELY (0.3s) mba tsy ho blocké
+                await new Promise(resolve => setTimeout(resolve, 300));
             }
-        }
-        
-        if (!found) {
-            ctx.reply("⚠️ Mbola tsy misy formation.", Markup.inlineKeyboard([[backButton]]));
-        } else {
-            // Add global back button at the end of the list
-            ctx.reply("----------------", Markup.inlineKeyboard([[backButton]]));
+            
+            // 5. Bokotra Retour any amin'ny farany
+            await ctx.reply("----------------", Markup.inlineKeyboard([[backButton]]));
+
+        } catch (error) {
+            console.error("Erreur Query:", error);
+            ctx.reply("❌ Nisy olana teknika kely tamin'ny fakana ny videos.");
         }
     });
 });
