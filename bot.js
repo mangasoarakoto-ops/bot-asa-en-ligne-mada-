@@ -3,7 +3,6 @@ const express = require('express');
 
 // --- FIREBASE IMPORT ---
 // ZAVA-DEHIBE: Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo rehetra ireo
-// Raha tsy mandeha ny 'increment', dia jereo ny firebase.js anao
 const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where, increment } = require('./firebase');
 
 // --- CONFIGURATION ---
@@ -325,42 +324,52 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
 });
 
 // ============================================================
-// --- APPROBATION LOGIC (CORRIGÉ / NO BUG) ---
+// --- APPROBATION LOGIC (CORRIGÉ / OPTIMISÉ) ---
 // ============================================================
 
 // A. Validation Abonnement (1500 Ar)
 bot.action(/approve_sub_(.+)/, async (ctx) => {
-    // 1. Valider le click tout de suite pour éviter "Ne répond pas"
-    await ctx.answerCbQuery("✅ Traitement en cours...");
+    // 1. Valider le click TOUT DE SUITE pour éviter "Ne répond pas"
+    try {
+        await ctx.answerCbQuery("✅ Traitement en cours...");
+    } catch(e) { console.log(e); }
 
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     const userRef = doc(db, "users", targetId);
 
     try {
+        // 2. Vérifier si l'utilisateur existe
         const userSnap = await getDoc(userRef);
         if (!userSnap.exists()) {
             return ctx.reply("❌ Erreur: Utilisateur introuvable.");
         }
 
-        // 2. Activer le compte
+        // 3. Activer le compte (PRIMORDIAL)
         await updateDoc(userRef, { 
             status: 'approved',
             approvedAt: new Date().toISOString()
         });
 
-        // 3. Gestion Parrainage (Securisé avec Try/Catch)
-        // Raha misy erreur ato dia tsy manakana ny validation
-        try {
-            const userData = userSnap.data();
-            if (userData.referredBy) {
+        // 4. Update UI Admin (Message)
+        try { 
+            await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ABONNEMENT)`); 
+        } catch (e) {}
+
+        // 5. Notify User
+        await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
+
+        // 6. Gestion Parrainage (Atao amin'ny farany mba tsy hanakanana ny validation)
+        const userData = userSnap.data();
+        if (userData.referredBy) {
+            try {
                 const referrerRef = doc(db, "users", userData.referredBy);
-                // Utilisation increment Firestore
+                // Mampiasa increment avy amin'ny firebase.js
                 await updateDoc(referrerRef, { 
                     referralCount: increment(1) 
                 });
 
-                // Verification 10 personnes
+                // Vérification pour le bonus Robot
                 const referrerSnap = await getDoc(referrerRef);
                 if (referrerSnap.exists()) {
                     const rData = referrerSnap.data();
@@ -369,19 +378,10 @@ bot.action(/approve_sub_(.+)/, async (ctx) => {
                         await ctx.telegram.sendMessage(userData.referredBy, "🎉 **BRAVO!**\n\nNahatafiditra olona 10 ianao. Efa misokatra maimaim-poana ho anao izao ny menu **Vente Robot Trading**!");
                     }
                 }
+            } catch (errParrain) {
+                console.error("Erreur Parrainage (Ignoré):", errParrain);
             }
-        } catch (errParrain) {
-            console.error("Erreur Parrainage (tsy maninona):", errParrain);
-            // Tsy manao n'inona n'inona, tohizana ny validation
         }
-
-        // 4. Update UI Admin
-        try { 
-            await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ABONNEMENT)`); 
-        } catch (e) {}
-
-        // 5. Notify User
-        await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
 
     } catch (error) {
         console.error("Erreur Validation:", error);
@@ -391,7 +391,7 @@ bot.action(/approve_sub_(.+)/, async (ctx) => {
 
 // B. Validation Robot
 bot.action(/approve_robot_(.+)/, async (ctx) => {
-    await ctx.answerCbQuery("✅ Traitement..."); // Valider click
+    try { await ctx.answerCbQuery("✅ Traitement..."); } catch(e){}
     
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
@@ -410,7 +410,7 @@ bot.action(/approve_robot_(.+)/, async (ctx) => {
 
 // C. Rejet
 bot.action(/reject_(.+)/, async (ctx) => {
-    await ctx.answerCbQuery("❌ Refusé");
+    try { await ctx.answerCbQuery("❌ Refusé"); } catch(e){}
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
@@ -419,7 +419,7 @@ bot.action(/reject_(.+)/, async (ctx) => {
 });
 
 bot.action(/reject_robot_(.+)/, async (ctx) => {
-    await ctx.answerCbQuery("❌ Refusé");
+    try { await ctx.answerCbQuery("❌ Refusé"); } catch(e){}
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Confirmation'}\n\n❌ REFUSÉ (ROBOT)`); } catch (e) {}
@@ -448,7 +448,7 @@ Rehefa mahazo olona **10** nandoa vola ianao, dia hahazo ny **ROBOT TRADING PRO 
     await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard([[backButton]]));
 });
 
-// --- LISTE ROBOTS ---
+// --- LISTE ROBOTS (CORRIGÉ : MANDEHA NY VIDEO/XML) ---
 async function showRobotContent(ctx) {
     const q = query(collection(db, "formations"), where("category", "==", "robot_pro"));
     const snapshot = await getDocs(q);
@@ -459,12 +459,29 @@ async function showRobotContent(ctx) {
 
     await ctx.reply("💎 **LISTE DES ROBOTS PRO**\n\nMisafidiana ary ampiasao amim-pahendrena (1/jour).");
     
+    // Eto no nisy ny olana: Tsy maintsy jerena ny mime type
     for (const docSnap of snapshot.docs) {
         const d = docSnap.data();
         let buttons = [];
-        if (d.downloadLink) buttons.push(Markup.button.url('📥 Télécharger', d.downloadLink));
-        
-        await ctx.replyWithMarkdown(`🤖 **${d.title}**\n\n${d.description || ''}`, Markup.inlineKeyboard([buttons]));
+        // Raha misy fichier Direct (Video, Document)
+        if (d.method === 'file' && d.fileId) {
+             let caption = `🤖 **${d.title}**\n${d.description || ''}`;
+             
+             try {
+                if (d.mime === 'video') await ctx.replyWithVideo(d.fileId, { caption, parse_mode: 'Markdown' });
+                else if (d.mime === 'audio') await ctx.replyWithAudio(d.fileId, { caption, parse_mode: 'Markdown' });
+                else if (d.mime === 'photo') await ctx.replyWithPhoto(d.fileId, { caption, parse_mode: 'Markdown' });
+                else await ctx.replyWithDocument(d.fileId, { caption, parse_mode: 'Markdown' });
+             } catch (err) {
+                 console.log("Erreur envoi fichier robot", err);
+                 await ctx.reply(`⚠️ Erreur fichier: ${d.title}`);
+             }
+        } 
+        // Raha Lien ihany
+        else {
+             if (d.downloadLink) buttons.push(Markup.button.url('📥 Télécharger', d.downloadLink));
+             await ctx.replyWithMarkdown(`🤖 **${d.title}**\n\n${d.description || ''}`, Markup.inlineKeyboard([buttons]));
+        }
         await new Promise(r => setTimeout(r, 300));
     }
     await ctx.reply("---", Markup.inlineKeyboard([[backButton]]));
@@ -598,7 +615,7 @@ bot.action(/edit_title_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; u
 bot.action(/edit_desc_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; userStates[ADMIN_ID] = 'admin_edit_desc'; ctx.reply("Nouvelle Description?"); });
 bot.action(/delete_(.+)/, async (ctx) => { await deleteDoc(doc(db, "formations", ctx.match[1])); ctx.answerCbQuery('Supprimé'); ctx.editMessageText('🗑️ Effacé.'); });
 
-// --- DISPLAY CONTENT ---
+// --- DISPLAY CONTENT (AUTRES CATEGORIES) ---
 cats.forEach(cat => {
     if (cat === 'robot_pro') return; 
 
