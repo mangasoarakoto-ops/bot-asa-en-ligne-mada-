@@ -1,8 +1,9 @@
 const { Telegraf, Markup, session } = require('telegraf');
 const express = require('express');
 
-// --- FIREBASE IMPORT (Aza kitihana raha efa mandeha) ---
-// Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo rehetra ireo
+// --- FIREBASE IMPORT ---
+// ZAVA-DEHIBE: Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo rehetra ireo
+// Raha tsy mandeha ny 'increment', dia jereo ny firebase.js anao
 const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where, increment } = require('./firebase');
 
 // --- CONFIGURATION ---
@@ -26,19 +27,19 @@ const userStates = {};
 const tempFormation = {}; 
 const editingState = {}; 
 
-// --- MENU PRINCIPAL (Nohavaozina Design) ---
+// --- MENU PRINCIPAL ---
 const mainMenu = Markup.inlineKeyboard([
     [Markup.button.callback('📂 Microtache', 'cat_microtache'), Markup.button.callback('📹 Poppo Live', 'cat_poppo')],
     [Markup.button.callback('🤖 Trading Bot (Gratuit)', 'cat_trading'), Markup.button.callback('💰 Criptomonie', 'cat_crypto')],
     [Markup.button.callback('📈 Investissement', 'cat_invest')],
-    [Markup.button.callback('💎 Vente Robot PRO ⭐', 'cat_vente_robot')], // Sokajy Vaovao
+    [Markup.button.callback('💎 Vente Robot PRO ⭐', 'cat_vente_robot')], 
     [Markup.button.url('💸 Retrait (Echange)', 'https://asaenlignemadaga.is-great.net/echange.html')],
-    [Markup.button.callback('🔗 Mon Lien de Parrainage', 'my_referral')] // Bokotra Parrainage
+    [Markup.button.callback('🔗 Mon Lien de Parrainage', 'my_referral')]
 ]);
 
 const backButton = Markup.button.callback('🏠 Retour Menu', 'return_home');
 
-// --- FORMAT DATE HELPER ---
+// --- CHECK 30 JOURS ---
 function isExpired(approvedDateStr) {
     if (!approvedDateStr) return true;
     const approvedDate = new Date(approvedDateStr);
@@ -48,7 +49,7 @@ function isExpired(approvedDateStr) {
     return diffDays > 30; // 30 Jours Validité
 }
 
-// --- MIDDLEWARE: CHECK USER STATUS & EXPIRATION ---
+// --- MIDDLEWARE STATUS ---
 async function checkUserStatus(ctx, next) {
     const userId = ctx.from.id.toString();
     if (userId === ADMIN_ID) {
@@ -66,7 +67,6 @@ async function checkUserStatus(ctx, next) {
     
     const userData = userSnap.data();
 
-    // 1. Check raha nandoa vola (Approved)
     if (userData.status !== 'approved') {
         if (userData.status === 'pending_verification') {
             return ctx.reply("⏳ Efa voaray ny fangatahanao. Miandry fankatoavana avy amin'ny Admin.");
@@ -74,17 +74,15 @@ async function checkUserStatus(ctx, next) {
         return showPaymentPage(ctx, false);
     }
 
-    // 2. Check 30 Jours Expiration
     if (userData.approvedAt && isExpired(userData.approvedAt)) {
-        // Reset status raha tapitra ny volana
         await updateDoc(userRef, { status: 'expired' });
-        return showPaymentPage(ctx, true); // True = Mode Renouvellement
+        return showPaymentPage(ctx, true);
     }
 
     return next();
 }
 
-// --- PAGE PAIEMENT (Mise à jour) ---
+// --- PAGE PAIEMENT ---
 async function showPaymentPage(ctx, isRenewal = false) {
     const title = isRenewal ? "⚠️ **TAPITRA NY 30 ANDRO**" : "🔐 **FEPETRA HIDIRANA**";
     const subtext = isRenewal 
@@ -109,24 +107,21 @@ Rehefa vita, tsindrio ny **"✅ J'ai payé"**.
     ]));
 }
 
-// --- START COMMAND & PARRAINAGE ---
+// --- START COMMAND ---
 bot.start(async (ctx) => {
     const userId = ctx.from.id.toString();
-    const startPayload = ctx.startPayload; // Mahazo ny ID parrain raha misy
+    const startPayload = ctx.startPayload; 
 
     if(userId === ADMIN_ID) return sendAdminPanel(ctx);
 
     const userRef = doc(db, "users", userId);
     const userSnap = await getDoc(userRef);
 
-    // Raha user vaovao ka manana parrain
     if (!userSnap.exists() && startPayload && startPayload !== userId) {
-        // Tehirizina vonjimaika ao amin'ny session na miandry ny contact
         userStates[userId + '_referrer'] = startPayload;
     }
 
     if (userSnap.exists() && userSnap.data().status === 'approved') {
-        // Check expiration
         if (userSnap.data().approvedAt && isExpired(userSnap.data().approvedAt)) {
              await updateDoc(userRef, { status: 'expired' });
              return showPaymentPage(ctx, true);
@@ -137,7 +132,7 @@ bot.start(async (ctx) => {
     }
 });
 
-// --- RECEPTION CONTACT (Save User + Referrer) ---
+// --- RECEPTION CONTACT ---
 bot.on('contact', async (ctx) => {
     const userId = ctx.from.id.toString();
     const phoneNumber = ctx.message.contact.phone_number;
@@ -149,8 +144,8 @@ bot.on('contact', async (ctx) => {
         firstName: ctx.from.first_name,
         status: 'pending_payment', 
         joinedAt: new Date().toISOString(),
-        referralCount: 0, // Isan'ny olona nampidiriny
-        robotAccess: false // Zo hiditra amin'ny Robot Pro
+        referralCount: 0,
+        robotAccess: false 
     };
 
     if (referrerId) {
@@ -158,35 +153,30 @@ bot.on('contact', async (ctx) => {
     }
 
     await setDoc(doc(db, "users", userId), userData, { merge: true });
-    
-    // Clean state
     delete userStates[userId + '_referrer'];
-
     await ctx.reply("✅ Voaray ny laharanao.", Markup.removeKeyboard());
     return showPaymentPage(ctx);
 });
 
-// --- ACTION RETOUR ---
+// --- NAVIGATION ---
 bot.action('return_home', async (ctx) => {
     try {
         await ctx.answerCbQuery();
         if (ctx.from.id.toString() === ADMIN_ID) {
              return ctx.editMessageText("👋 Tongasoa eto amin'ny Menu Principal:", mainMenu);
         }
-        // Check indray sao dia expired tampoka
         const userRef = doc(db, "users", ctx.from.id.toString());
         const snap = await getDoc(userRef);
         if(snap.exists() && isExpired(snap.data().approvedAt)) {
             return showPaymentPage(ctx, true);
         }
-
         await ctx.editMessageText("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
     } catch (e) {
         await ctx.reply("👋 Tongasoa eto amin'ny Asa En Ligne Mada!", mainMenu);
     }
 });
 
-// --- PAIEMENT ABONNEMENT LOGIC ---
+// --- PAIEMENT HANDLERS ---
 bot.action('pay_new', (ctx) => {
     userStates[ctx.from.id] = 'waiting_payment_sender';
     ctx.reply("Soraty ny laharana nandefasanao ny vola (ohatra: 034xxxxxxx):");
@@ -196,22 +186,16 @@ bot.action('pay_old', (ctx) => {
     ctx.reply("Soraty ny laharana nampiasainao tao amin'ny site taloha:");
 });
 
-// ============================================================
-// --- NOUVELLE SECTION: VENTE ROBOT TRADING ---
-// ============================================================
-
-// 1. Fanazavana voalohany
+// --- ROBOT SECTION ---
 bot.action('cat_vente_robot', async (ctx) => {
     const userId = ctx.from.id.toString();
     const userRef = doc(db, "users", userId);
     const snap = await getDoc(userRef);
     
-    // Check raha efa manana accès (Na nividy, na tamin'ny parrainage)
     if (snap.exists() && snap.data().robotAccess === true) {
-        return showRobotContent(ctx); // Asehoy ny robot avy hatrany
+        return showRobotContent(ctx);
     }
 
-    // Raha mbola tsy manana accès:
     const msg = `
 🤖 **VENTE ROBOT TRADING PRO**
 
@@ -228,7 +212,6 @@ Te hanohy ve ianao?
     ]));
 });
 
-// 2. Fanazavana Fampiasana
 bot.action('robot_step_2', async (ctx) => {
     const msg = `
 ⚙️ **FAMPIASANA NY ROBOT**
@@ -236,10 +219,6 @@ bot.action('robot_step_2', async (ctx) => {
 ✅ Hahazo **Robot 7** samihafa ianao.
 ✅ Ny robot iray dia ampiasaina **indray mandeha (1 fois)** isan-kerinandro.
 ✅ **Démarrage:** Indray mandeha isan'andro (Une fois par jour) ihany no alefa ny robot.
-
-⚠️ **Zava-dehibe:** Araho tsara ny toromarika mba tsy ho voasakana ny kaontinao.
-
-Manaiky ny fepetra ve ianao?
     `;
     await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard([
         [Markup.button.callback('✅ Accepté (Mandoa vola)', 'robot_step_pay')],
@@ -247,18 +226,16 @@ Manaiky ny fepetra ve ianao?
     ]));
 });
 
-// 3. Fandoavana vola Robot
 bot.action('robot_step_pay', async (ctx) => {
     const msg = `
 💳 **FANDOAVANA VOLA - ROBOT PRO**
 
-Alefaso ny **15,000 Ar** (miaraka amin'ny frais de retrait) amin'ny:
-
+Alefaso ny **15,000 Ar** amin'ny:
 ➡️ 032 39 116 54
 ➡️ 033 36 351 11
 ➡️ 038 22 668 76
 
-Rehefa vita, tsindrio ny bokotra **"✅ J'ai payé"**.
+Tsindrio ny **"✅ J'ai payé"** rehefa vita.
     `;
     await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard([
         [Markup.button.callback('✅ J\'ai payé', 'robot_confirm_pay')],
@@ -266,22 +243,17 @@ Rehefa vita, tsindrio ny bokotra **"✅ J'ai payé"**.
     ]));
 });
 
-// 4. Input Confirmation Robot
 bot.action('robot_confirm_pay', (ctx) => {
     userStates[ctx.from.id] = 'waiting_robot_sender_num';
     ctx.reply("Soraty ny **LAHARANA** nandefasanao ny vola (Robot 15000Ar):");
 });
 
-// ============================================================
-// --- GESTION DES INPUTS (TEXT & SARY) ---
-// ============================================================
-
+// --- INPUTS HANDLER ---
 bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
     const userId = ctx.from.id.toString();
     const state = userStates[userId];
     const text = ctx.message.text;
     
-    // --- ADMIN INPUTS ---
     if (userId === ADMIN_ID) {
         if (state && (state.startsWith('admin_add_') || state.startsWith('admin_edit_'))) {
             return handleAdminInput(ctx, state);
@@ -290,7 +262,7 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
 
     if (!text && state !== 'waiting_old_screenshot') return;
 
-    // --- STANDARD PAYMENT FLOW ---
+    // --- ABONNEMENT ---
     if (state === 'waiting_payment_sender') {
         await ctx.telegram.sendMessage(ADMIN_ID, 
             `💰 **NOUVEL ABONNEMENT**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Sender: ${text}\n📅 Type: Abonnement 1500Ar`,
@@ -298,10 +270,10 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
         );
         await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
         delete userStates[userId];
-        return ctx.reply("✅ Nalefa any amin'ny Admin ny fanamafisana. Miandrasa kely.");
+        return ctx.reply("✅ Nalefa any amin'ny Admin. Miandrasa kely.");
     }
 
-    // --- ROBOT PAYMENT FLOW ---
+    // --- ROBOT ---
     if (state === 'waiting_robot_sender_num') {
         userStates[userId] = 'waiting_robot_sender_name';
         userStates[userId + '_robot_num'] = text;
@@ -316,13 +288,12 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
             `🤖 **ACHAT ROBOT PRO**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Num: ${num}\n📝 Nom: ${name}\n💰 Montant: 15000 Ar`,
             Markup.inlineKeyboard([[Markup.button.callback('✅ Valider Achat Robot', `approve_robot_${userId}`)], [Markup.button.callback('❌ Refuser', `reject_robot_${userId}`)]])
         );
-        
         delete userStates[userId];
         delete userStates[userId + '_robot_num'];
-        return ctx.reply("✅ Voaray. Hamarinina any amin'ny Admin ny fividiananao ny Robot.");
+        return ctx.reply("✅ Voaray. Hamarinina any amin'ny Admin.");
     }
 
-    // --- OLD ACCOUNT FLOW ---
+    // --- OLD ACCOUNT ---
     if (state === 'waiting_old_phone') {
         userStates[userId] = 'waiting_old_screenshot';
         userStates[userId + '_phone'] = text; 
@@ -354,85 +325,108 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
 });
 
 // ============================================================
-// --- APPROBATION LOGIC (Parrainage & Robot) ---
+// --- APPROBATION LOGIC (CORRIGÉ / NO BUG) ---
 // ============================================================
 
-// A. Validation Abonnement (1500 Ar) + Parrainage Logic
+// A. Validation Abonnement (1500 Ar)
 bot.action(/approve_sub_(.+)/, async (ctx) => {
+    // 1. Valider le click tout de suite pour éviter "Ne répond pas"
+    await ctx.answerCbQuery("✅ Traitement en cours...");
+
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     const userRef = doc(db, "users", targetId);
-    const userSnap = await getDoc(userRef);
 
-    if (!userSnap.exists()) return;
+    try {
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) {
+            return ctx.reply("❌ Erreur: Utilisateur introuvable.");
+        }
 
-    // 1. Activate User + Set Date
-    await updateDoc(userRef, { 
-        status: 'approved',
-        approvedAt: new Date().toISOString() // Start 30 days count
-    });
-
-    // 2. Gestion Parrainage (Raha manana parrain)
-    const userData = userSnap.data();
-    if (userData.referredBy) {
-        const referrerRef = doc(db, "users", userData.referredBy);
-        // Ampiana 1 ny isan'ny parrainage an'ilay parrain
-        await updateDoc(referrerRef, { 
-            referralCount: increment(1) 
+        // 2. Activer le compte
+        await updateDoc(userRef, { 
+            status: 'approved',
+            approvedAt: new Date().toISOString()
         });
 
-        // Check raha nahatratra 10
-        const referrerSnap = await getDoc(referrerRef);
-        if (referrerSnap.exists() && referrerSnap.data().referralCount >= 10 && !referrerSnap.data().robotAccess) {
-            // Omena Robot Gratuit
-            await updateDoc(referrerRef, { robotAccess: true });
-            await ctx.telegram.sendMessage(userData.referredBy, "🎉 **FELICITATIONS!**\n\nNahatafiditra olona 10 ianao. Efa misokatra maimaim-poana ho anao izao ny menu **Vente Robot Trading**!");
-        }
-    }
+        // 3. Gestion Parrainage (Securisé avec Try/Catch)
+        // Raha misy erreur ato dia tsy manakana ny validation
+        try {
+            const userData = userSnap.data();
+            if (userData.referredBy) {
+                const referrerRef = doc(db, "users", userData.referredBy);
+                // Utilisation increment Firestore
+                await updateDoc(referrerRef, { 
+                    referralCount: increment(1) 
+                });
 
-    await ctx.answerCbQuery("✅ Compte Validé!");
-    try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ABONNEMENT)`); } catch (e) {}
-    await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
+                // Verification 10 personnes
+                const referrerSnap = await getDoc(referrerRef);
+                if (referrerSnap.exists()) {
+                    const rData = referrerSnap.data();
+                    if (rData.referralCount >= 10 && !rData.robotAccess) {
+                        await updateDoc(referrerRef, { robotAccess: true });
+                        await ctx.telegram.sendMessage(userData.referredBy, "🎉 **BRAVO!**\n\nNahatafiditra olona 10 ianao. Efa misokatra maimaim-poana ho anao izao ny menu **Vente Robot Trading**!");
+                    }
+                }
+            }
+        } catch (errParrain) {
+            console.error("Erreur Parrainage (tsy maninona):", errParrain);
+            // Tsy manao n'inona n'inona, tohizana ny validation
+        }
+
+        // 4. Update UI Admin
+        try { 
+            await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ABONNEMENT)`); 
+        } catch (e) {}
+
+        // 5. Notify User
+        await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
+
+    } catch (error) {
+        console.error("Erreur Validation:", error);
+        ctx.reply("❌ Nisy olana teo amin'ny validation: " + error.message);
+    }
 });
 
-// B. Validation Achat Robot (15000 Ar)
+// B. Validation Robot
 bot.action(/approve_robot_(.+)/, async (ctx) => {
+    await ctx.answerCbQuery("✅ Traitement..."); // Valider click
+    
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     
-    await updateDoc(doc(db, "users", targetId), { robotAccess: true });
-    
-    await ctx.answerCbQuery("✅ Robot Achat Validé!");
-    try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ROBOT)`); } catch (e) {}
-    
-    // Alefa avy hatrany ny liste robot
-    await ctx.telegram.sendMessage(targetId, "🎉 **FANDRESENA!**\n\nVoaray ny vola 15,000Ar. Misokatra izao ny section Robot Pro.");
-    // Force show robot content
-    // Tsy afaka manao force redirect mora, fa tenenina izy hijery menu
-    await ctx.telegram.sendMessage(targetId, "Tsindrio ny bokotra **💎 Vente Robot PRO** eo amin'ny Menu mba hakana ireo Robot-nao.", mainMenu);
+    try {
+        await updateDoc(doc(db, "users", targetId), { robotAccess: true });
+        
+        try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ROBOT)`); } catch (e) {}
+        
+        await ctx.telegram.sendMessage(targetId, "🎉 **FANDRESENA!**\n\nVoaray ny vola 15,000Ar. Misokatra izao ny section Robot Pro.");
+        await ctx.telegram.sendMessage(targetId, "Tsindrio ny bokotra **💎 Vente Robot PRO** eo amin'ny Menu mba hakana ireo Robot-nao.", mainMenu);
+    } catch (e) {
+        ctx.reply("Erreur Robot: " + e.message);
+    }
 });
 
 // C. Rejet
 bot.action(/reject_(.+)/, async (ctx) => {
+    await ctx.answerCbQuery("❌ Refusé");
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
-    await ctx.answerCbQuery("❌ Nolavina!");
     try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Confirmation'}\n\n❌ REFUSÉ`); } catch (e) {}
     await ctx.telegram.sendMessage(targetId, "❌ Nanda ny fandoavanao ny Admin. Hamarino ny laharana na ny vola.");
 });
 
 bot.action(/reject_robot_(.+)/, async (ctx) => {
+    await ctx.answerCbQuery("❌ Refusé");
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
-    await ctx.answerCbQuery("❌ Achat Robot Nolavina!");
     try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Confirmation'}\n\n❌ REFUSÉ (ROBOT)`); } catch (e) {}
     await ctx.telegram.sendMessage(targetId, "❌ Nolavina ny fividianana Robot. Mifandraisa amin'ny Admin.");
 });
 
-// ============================================================
-// --- SYSTÈME LIEN PARRAINAGE ---
-// ============================================================
+// --- LIEN PARRAINAGE ---
 bot.action('my_referral', async (ctx) => {
     const userId = ctx.from.id;
     const userSnap = await getDoc(doc(db, "users", userId.toString()));
@@ -451,15 +445,11 @@ Rehefa mahazo olona **10** nandoa vola ianao, dia hahazo ny **ROBOT TRADING PRO 
 👇 **Ity ny lien-nao:**
 \`${link}\`
     `;
-    // Mampiasa backticks (`) amin'ny link mba ho mora copy
     await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard([[backButton]]));
 });
 
-// ============================================================
-// --- FONCTION AFFICHER LISTE ROBOTS (Rehefa avy nividy) ---
-// ============================================================
+// --- LISTE ROBOTS ---
 async function showRobotContent(ctx) {
-    // Mitady ny formations manana category "robot_pro"
     const q = query(collection(db, "formations"), where("category", "==", "robot_pro"));
     const snapshot = await getDocs(q);
 
@@ -481,10 +471,7 @@ async function showRobotContent(ctx) {
 }
 
 
-// ============================================================
-// --- ADMIN PANEL (Nohavaozina) ---
-// ============================================================
-
+// --- ADMIN PANEL ---
 function sendAdminPanel(ctx) {
     ctx.reply("🔧 **ADMINISTRATION**", Markup.inlineKeyboard([
         [Markup.button.callback('➕ Ajouter Contenu', 'admin_add_start')],
@@ -499,7 +486,6 @@ bot.action('admin_home', async (ctx) => {
     await ctx.reply("👋 Tongasoa Admin! Ity ny Accueil / Menu Principal :", mainMenu);
 });
 
-// --- AJOUT CONTENU ADMIN ---
 bot.action('admin_add_start', (ctx) => {
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     for (var member in tempFormation) delete tempFormation[member];
@@ -507,8 +493,8 @@ bot.action('admin_add_start', (ctx) => {
     ctx.reply("1️⃣ Ampidiro ny **TITRE**:");
 });
 
-const cats = ['microtache', 'poppo', 'trading', 'crypto', 'invest', 'robot_pro']; // Added robot_pro
-bot.action(/^setcat_(.+)$/, (ctx) => { // Regex match for dynamic cats
+const cats = ['microtache', 'poppo', 'trading', 'crypto', 'invest', 'robot_pro']; 
+bot.action(/^setcat_(.+)$/, (ctx) => { 
     const c = ctx.match[1];
     tempFormation.category = c;
     userStates[ADMIN_ID] = 'admin_add_link_dl';
@@ -516,11 +502,9 @@ bot.action(/^setcat_(.+)$/, (ctx) => { // Regex match for dynamic cats
     ctx.reply(`Section: ${label}\n\n4️⃣ Alefaso ny **FICHIER** na **LIEN** (Direct or Drive):`);
 });
 
-// --- GESTION INPUT ADMIN ---
 async function handleAdminInput(ctx, state) {
     const text = ctx.message.text;
 
-    // --- AJOUT ---
     if (state === 'admin_add_title') {
         tempFormation.title = text;
         userStates[ADMIN_ID] = 'admin_add_type';
@@ -532,12 +516,11 @@ async function handleAdminInput(ctx, state) {
             [Markup.button.callback('Microtache', 'setcat_microtache'), Markup.button.callback('Poppo Live', 'setcat_poppo')],
             [Markup.button.callback('Trading Bot (Gratuit)', 'setcat_trading'), Markup.button.callback('Criptomonie', 'setcat_crypto')],
             [Markup.button.callback('Investissement', 'setcat_invest')],
-            [Markup.button.callback('💎 ROBOT PRO (Vente)', 'setcat_robot_pro')] // New Category for Admin
+            [Markup.button.callback('💎 ROBOT PRO (Vente)', 'setcat_robot_pro')] 
         ]));
         delete userStates[ADMIN_ID];
     
     } else if (state === 'admin_add_link_dl') {
-        // ... (Gestion Fichier mitovy amin'ny taloha, tsy miova) ...
         if (ctx.message.document) {
             tempFormation.fileId = ctx.message.document.file_id; tempFormation.method = 'file'; tempFormation.mime = 'doc';
             await ctx.reply(`✅ Document voaray.`);
@@ -576,7 +559,6 @@ async function handleAdminInput(ctx, state) {
         );
         delete userStates[ADMIN_ID];
     
-    // --- EDITION ---
     } else if (state === 'admin_edit_title') {
         const id = editingState.id;
         await updateDoc(doc(db, "formations", id), { title: text });
@@ -592,7 +574,6 @@ async function handleAdminInput(ctx, state) {
     }
 }
 
-// --- HISTORIQUE (Mitovy amin'ny taloha) ---
 bot.action('admin_history', (ctx) => showHistorique(ctx));
 bot.action('admin_panel_back', (ctx) => sendAdminPanel(ctx));
 
@@ -613,20 +594,15 @@ async function showHistorique(ctx) {
         );
     });
 }
-// Edit & Delete handlers (Standard - Tsy niova be)
 bot.action(/edit_title_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; userStates[ADMIN_ID] = 'admin_edit_title'; ctx.reply("Nouveau Titre?"); });
 bot.action(/edit_desc_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; userStates[ADMIN_ID] = 'admin_edit_desc'; ctx.reply("Nouvelle Description?"); });
 bot.action(/delete_(.+)/, async (ctx) => { await deleteDoc(doc(db, "formations", ctx.match[1])); ctx.answerCbQuery('Supprimé'); ctx.editMessageText('🗑️ Effacé.'); });
 
-// ============================================================
-// --- USER VIEW STANDARD CONTENT ---
-// ============================================================
+// --- DISPLAY CONTENT ---
 cats.forEach(cat => {
-    // Skip robot_pro here because it has special handler
     if (cat === 'robot_pro') return; 
 
     bot.action(`cat_${cat}`, async (ctx) => {
-        // Verification User et Expiration
         const userRef = doc(db, "users", ctx.from.id.toString());
         const userSnap = await getDoc(userRef);
         
