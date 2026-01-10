@@ -2,7 +2,7 @@ const { Telegraf, Markup, session } = require('telegraf');
 const express = require('express');
 
 // --- FIREBASE IMPORT ---
-// ZAVA-DEHIBE: Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo rehetra ireo
+// Hamarino fa ao amin'ny 'firebase.js' dia misy 'export' an'ireo rehetra ireo
 const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where, increment } = require('./firebase');
 
 // --- CONFIGURATION ---
@@ -267,7 +267,13 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
             `💰 **NOUVEL ABONNEMENT**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Sender: ${text}\n📅 Type: Abonnement 1500Ar`,
             Markup.inlineKeyboard([[Markup.button.callback('✅ Approuver', `approve_sub_${userId}`)], [Markup.button.callback('❌ Refuser', `reject_${userId}`)]])
         );
-        await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
+        // Eto dia mampiasa setDoc mba hamoronana ny user raha tsy misy
+        await setDoc(doc(db, "users", userId), { 
+            status: 'pending_verification',
+            firstName: ctx.from.first_name,
+            telegramId: userId
+        }, { merge: true });
+
         delete userStates[userId];
         return ctx.reply("✅ Nalefa any amin'ny Admin. Miandrasa kely.");
     }
@@ -317,75 +323,73 @@ bot.on(['text', 'photo', 'video', 'document', 'audio'], async (ctx) => {
              caption: `🔄 **Ancien Compte**\n👤 User: ${ctx.from.first_name}\n🆔 ID: ${userId}\n📞 Ancien Num: ${oldPhone}\n🗒️ Note: ${text}`,
              ...Markup.inlineKeyboard([[Markup.button.callback('✅ Approuver', `approve_sub_${userId}`)], [Markup.button.callback('❌ Refuser', `reject_${userId}`)]])
          });
-         await updateDoc(doc(db, "users", userId), { status: 'pending_verification' });
+         await setDoc(doc(db, "users", userId), { status: 'pending_verification' }, { merge: true });
          delete userStates[userId];
          return ctx.reply("✅ Nalefa any amin'ny Admin.");
     }
 });
 
 // ============================================================
-// --- APPROBATION LOGIC (CORRIGÉ / OPTIMISÉ) ---
+// --- APPROBATION LOGIC (AMELIORÉE & SÉCURISÉE) ---
 // ============================================================
 
-// A. Validation Abonnement (1500 Ar)
+// A. Validation Abonnement (1500 Ar) + Parrainage
 bot.action(/approve_sub_(.+)/, async (ctx) => {
-    // 1. Valider le click TOUT DE SUITE pour éviter "Ne répond pas"
-    try {
-        await ctx.answerCbQuery("✅ Traitement en cours...");
-    } catch(e) { console.log(e); }
+    // 1. Valider le click RAPIDEMENT
+    try { await ctx.answerCbQuery("✅ Traitement en cours..."); } catch(e) {}
 
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
     const userRef = doc(db, "users", targetId);
 
     try {
-        // 2. Vérifier si l'utilisateur existe
-        const userSnap = await getDoc(userRef);
-        if (!userSnap.exists()) {
-            return ctx.reply("❌ Erreur: Utilisateur introuvable.");
-        }
-
-        // 3. Activer le compte (PRIMORDIAL)
-        await updateDoc(userRef, { 
+        // 2. Activer le compte (Mampiasa setDoc+merge fa tsy updateDoc mba tsy hanao error NOT_FOUND)
+        await setDoc(userRef, { 
             status: 'approved',
             approvedAt: new Date().toISOString()
-        });
+        }, { merge: true });
 
-        // 4. Update UI Admin (Message)
+        // 3. Update Message Admin
         try { 
             await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ABONNEMENT)`); 
         } catch (e) {}
 
-        // 5. Notify User
-        await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
+        // 4. Notify User
+        try {
+            await ctx.telegram.sendMessage(targetId, "✅ Arahabaina! Nekena ny kaontinao (Valide 30 jours). Afaka miditra ianao izao.", mainMenu);
+        } catch (e) { console.log("User block bot?"); }
 
-        // 6. Gestion Parrainage (Atao amin'ny farany mba tsy hanakanana ny validation)
-        const userData = userSnap.data();
-        if (userData.referredBy) {
-            try {
-                const referrerRef = doc(db, "users", userData.referredBy);
-                // Mampiasa increment avy amin'ny firebase.js
-                await updateDoc(referrerRef, { 
-                    referralCount: increment(1) 
-                });
-
-                // Vérification pour le bonus Robot
-                const referrerSnap = await getDoc(referrerRef);
-                if (referrerSnap.exists()) {
-                    const rData = referrerSnap.data();
-                    if (rData.referralCount >= 10 && !rData.robotAccess) {
-                        await updateDoc(referrerRef, { robotAccess: true });
-                        await ctx.telegram.sendMessage(userData.referredBy, "🎉 **BRAVO!**\n\nNahatafiditra olona 10 ianao. Efa misokatra maimaim-poana ho anao izao ny menu **Vente Robot Trading**!");
+        // 5. GESTION PARRAINAGE (Sécurisé)
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+            const userData = userSnap.data();
+            if (userData.referredBy) {
+                try {
+                    const referrerRef = doc(db, "users", userData.referredBy);
+                    // Increment count
+                    await updateDoc(referrerRef, { referralCount: increment(1) });
+                    
+                    // Check Bonus 10 personnes
+                    const referrerSnap = await getDoc(referrerRef);
+                    if (referrerSnap.exists()) {
+                        const rData = referrerSnap.data();
+                        if (rData.referralCount >= 10 && !rData.robotAccess) {
+                            await updateDoc(referrerRef, { robotAccess: true });
+                            await ctx.telegram.sendMessage(userData.referredBy, "🎉 **BRAVO!**\n\nNahatafiditra olona 10 ianao. Efa misokatra maimaim-poana ho anao izao ny menu **Vente Robot Trading**!");
+                        } else {
+                            // Notification simple (optionnel)
+                            await ctx.telegram.sendMessage(userData.referredBy, `👏 Nisy olona iray niditra tamin'ny lien-nao! Total: ${rData.referralCount}/10`);
+                        }
                     }
+                } catch (errParrain) {
+                    console.error("Erreur Parrainage (Ignoré):", errParrain);
                 }
-            } catch (errParrain) {
-                console.error("Erreur Parrainage (Ignoré):", errParrain);
             }
         }
 
     } catch (error) {
         console.error("Erreur Validation:", error);
-        ctx.reply("❌ Nisy olana teo amin'ny validation: " + error.message);
+        ctx.reply("❌ Erreur Critique: " + error.message);
     }
 });
 
@@ -397,7 +401,8 @@ bot.action(/approve_robot_(.+)/, async (ctx) => {
     const targetId = ctx.match[1];
     
     try {
-        await updateDoc(doc(db, "users", targetId), { robotAccess: true });
+        // Fiarovana: setDoc + merge
+        await setDoc(doc(db, "users", targetId), { robotAccess: true }, { merge: true });
         
         try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Fanamafisana'}\n\n✅ APPROUVÉ (ROBOT)`); } catch (e) {}
         
@@ -413,7 +418,10 @@ bot.action(/reject_(.+)/, async (ctx) => {
     try { await ctx.answerCbQuery("❌ Refusé"); } catch(e){}
     if (ctx.from.id.toString() !== ADMIN_ID) return;
     const targetId = ctx.match[1];
-    await updateDoc(doc(db, "users", targetId), { status: 'rejected' });
+    
+    // Fiarovana: setDoc + merge
+    await setDoc(doc(db, "users", targetId), { status: 'rejected' }, { merge: true });
+    
     try { await ctx.editMessageCaption(`${ctx.callbackQuery.message.caption || 'Confirmation'}\n\n❌ REFUSÉ`); } catch (e) {}
     await ctx.telegram.sendMessage(targetId, "❌ Nanda ny fandoavanao ny Admin. Hamarino ny laharana na ny vola.");
 });
@@ -429,7 +437,14 @@ bot.action(/reject_robot_(.+)/, async (ctx) => {
 // --- LIEN PARRAINAGE ---
 bot.action('my_referral', async (ctx) => {
     const userId = ctx.from.id;
-    const userSnap = await getDoc(doc(db, "users", userId.toString()));
+    const userRef = doc(db, "users", userId.toString());
+    const userSnap = await getDoc(userRef);
+    
+    // Raha tsy misy ilay user dia foronina fotsiny mba tsy hisy erreur
+    if (!userSnap.exists()) {
+        await setDoc(userRef, { referralCount: 0, telegramId: userId.toString() }, { merge: true });
+    }
+    
     const count = userSnap.exists() ? (userSnap.data().referralCount || 0) : 0;
     const botUser = await ctx.telegram.getMe();
     const link = `https://t.me/${botUser.username}?start=${userId}`;
@@ -448,7 +463,7 @@ Rehefa mahazo olona **10** nandoa vola ianao, dia hahazo ny **ROBOT TRADING PRO 
     await ctx.replyWithMarkdown(msg, Markup.inlineKeyboard([[backButton]]));
 });
 
-// --- LISTE ROBOTS (CORRIGÉ : MANDEHA NY VIDEO/XML) ---
+// --- LISTE ROBOTS ---
 async function showRobotContent(ctx) {
     const q = query(collection(db, "formations"), where("category", "==", "robot_pro"));
     const snapshot = await getDocs(q);
@@ -459,26 +474,20 @@ async function showRobotContent(ctx) {
 
     await ctx.reply("💎 **LISTE DES ROBOTS PRO**\n\nMisafidiana ary ampiasao amim-pahendrena (1/jour).");
     
-    // Eto no nisy ny olana: Tsy maintsy jerena ny mime type
     for (const docSnap of snapshot.docs) {
         const d = docSnap.data();
         let buttons = [];
-        // Raha misy fichier Direct (Video, Document)
         if (d.method === 'file' && d.fileId) {
              let caption = `🤖 **${d.title}**\n${d.description || ''}`;
-             
              try {
                 if (d.mime === 'video') await ctx.replyWithVideo(d.fileId, { caption, parse_mode: 'Markdown' });
                 else if (d.mime === 'audio') await ctx.replyWithAudio(d.fileId, { caption, parse_mode: 'Markdown' });
                 else if (d.mime === 'photo') await ctx.replyWithPhoto(d.fileId, { caption, parse_mode: 'Markdown' });
                 else await ctx.replyWithDocument(d.fileId, { caption, parse_mode: 'Markdown' });
              } catch (err) {
-                 console.log("Erreur envoi fichier robot", err);
                  await ctx.reply(`⚠️ Erreur fichier: ${d.title}`);
              }
-        } 
-        // Raha Lien ihany
-        else {
+        } else {
              if (d.downloadLink) buttons.push(Markup.button.url('📥 Télécharger', d.downloadLink));
              await ctx.replyWithMarkdown(`🤖 **${d.title}**\n\n${d.description || ''}`, Markup.inlineKeyboard([buttons]));
         }
@@ -591,29 +600,43 @@ async function handleAdminInput(ctx, state) {
     }
 }
 
+// --- HISTORIQUE (CORRIGÉ: MAMPIVOAKA NY LISTE REHETRA) ---
 bot.action('admin_history', (ctx) => showHistorique(ctx));
 bot.action('admin_panel_back', (ctx) => sendAdminPanel(ctx));
 
 async function showHistorique(ctx) {
     if (ctx.from.id.toString() !== ADMIN_ID) return;
+    
     const q = collection(db, "formations");
     const querySnapshot = await getDocs(q);
+    
     if (querySnapshot.empty) return ctx.reply("📭 Vide.", Markup.inlineKeyboard([[Markup.button.callback('⬅️ Retour', 'admin_panel_back')]]));
     
-    await ctx.reply("📚 **LISTE COMPLETE**");
-    querySnapshot.forEach((docSnap) => {
+    await ctx.reply(`📚 **LISTE COMPLETE** (${querySnapshot.size} éléments)`);
+    
+    // ITY NO NANAMPY: Mampiasa Loop "for...of" sy "pause" mba hivoaka daholo ny liste rehetra
+    for (const docSnap of querySnapshot.docs) {
         const d = docSnap.data();
-        ctx.replyWithMarkdown(`📌 **${d.title}**\n📂 ${d.category}`, 
+        await ctx.replyWithMarkdown(`📌 **${d.title}**\n📂 ${d.category}`, 
             Markup.inlineKeyboard([
                 [Markup.button.callback('✏️ Titre', `edit_title_${docSnap.id}`), Markup.button.callback('✏️ Desc', `edit_desc_${docSnap.id}`)],
                 [Markup.button.callback('🗑️ SUPPRIMER', `delete_${docSnap.id}`)]
             ])
         );
-    });
+        // Pause kely 200ms mba tsy hanao "Spam block" ny Telegram
+        await new Promise(r => setTimeout(r, 200));
+    }
 }
+
 bot.action(/edit_title_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; userStates[ADMIN_ID] = 'admin_edit_title'; ctx.reply("Nouveau Titre?"); });
 bot.action(/edit_desc_(.+)/, async (ctx) => { editingState.id = ctx.match[1]; userStates[ADMIN_ID] = 'admin_edit_desc'; ctx.reply("Nouvelle Description?"); });
-bot.action(/delete_(.+)/, async (ctx) => { await deleteDoc(doc(db, "formations", ctx.match[1])); ctx.answerCbQuery('Supprimé'); ctx.editMessageText('🗑️ Effacé.'); });
+bot.action(/delete_(.+)/, async (ctx) => { 
+    try {
+        await deleteDoc(doc(db, "formations", ctx.match[1])); 
+        ctx.answerCbQuery('Supprimé'); 
+        ctx.editMessageText('🗑️ Effacé.'); 
+    } catch(e) { ctx.reply("Erreur suppression"); }
+});
 
 // --- DISPLAY CONTENT (AUTRES CATEGORIES) ---
 cats.forEach(cat => {
@@ -636,6 +659,7 @@ cats.forEach(cat => {
         
         if (querySnapshot.empty) return ctx.reply("⚠️ Mbola tsy misy.", Markup.inlineKeyboard([[backButton]]));
 
+        // Eto koa asiana pause kely mba hivoaka daholo ny video raha misy maro
         for (const formationDoc of querySnapshot.docs) {
             const data = formationDoc.data();
             try {
@@ -655,6 +679,8 @@ cats.forEach(cat => {
                     await ctx.replyWithMarkdown(`🎓 **${data.title}**\n\n📝 ${data.description}\n\n📂 Type: ${data.type}`, Markup.inlineKeyboard([buttonsRow]));
                 }
             } catch (e) { console.error("Error sending item", e); }
+            
+            // Pause 500ms
             await new Promise(r => setTimeout(r, 500));
         }
         await ctx.reply("----------------", Markup.inlineKeyboard([[backButton]]));
