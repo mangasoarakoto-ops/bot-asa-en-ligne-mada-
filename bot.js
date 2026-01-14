@@ -6,7 +6,7 @@ const express = require('express');
 const { db, doc, setDoc, getDoc, updateDoc, collection, addDoc, getDocs, deleteDoc, query, where, increment } = require('./firebase');
 
 // --- CONFIGURATION ---
-const BOT_TOKEN = "8538682604:AAH-tT7u21BBSdwuDyySY0dWMn0Pq0N-QgU";
+const BOT_TOKEN = "8228091809:AAFzh0dTHemtrVkkzm84vPc4_nT-XjmTWJ0";
 const ADMIN_ID = "8207051152"; 
 const PRICE_SUBSCRIPTION = "1500 Ar";
 const PRICE_ROBOT = "15000 Ar";
